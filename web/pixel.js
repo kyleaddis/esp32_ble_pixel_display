@@ -2,12 +2,17 @@ let ble_device;
 let gattServer;
 let commandService;
 let writeCharacteristic;
+let readNotifyCharacteristic;
 let busy = false;
 let is_drawing = false;
 let commandQueue = [];
-// TODO
+let current_save_slot = 0;
+
+const WRITE_CHARACTERISTIC_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26a8"
+const READ_NOTIFY_CHARACTERISTIC_UUID = "e50fc8b7-42d6-4047-bc03-b2a92905d480"
 const pixels = document.getElementById("pixel_container");
 const clear_btn = document.getElementById("clear_btn");
+const save_btn = document.getElementById("save_btn");
 const color_selection = document.getElementById("pixel_color");
 let pixel_color = color_selection.value;
 const pallete = document.getElementById("pallete");
@@ -105,12 +110,31 @@ pixels.addEventListener("mouseup", (event) => {
   is_drawing = false;
 });
 
+pixels.addEventListener("mouseleave", (event) => {
+  event.preventDefault();
+  is_drawing = false;
+});
+
+
 pixels.addEventListener("mouseover", (event) => {
   event.preventDefault();
   if (is_drawing) {
     paint_tile(event.target);
   }
 });
+
+function setup_save_slots() {
+  const saves = document.getElementsByClassName("save")
+  console.log(saves);
+  const savesArray = Array.from(saves);
+  savesArray.forEach((s, i) => {
+    s.addEventListener("click", () => {
+      current_save_slot = i
+      sendChangeSaveSlot(i)
+      loadSaveToGrid(i);
+    })
+  });
+}
 
 function convertHexColorToInt(hexColor) {
   hexColor = hexColor.replace("#", "");
@@ -141,6 +165,8 @@ function resetVariables() {
   gattServer = null;
   commandService = null;
   writeCharacteristic = null;
+  readNotifyCharacteristic = null;
+  save_slot = 0;
 }
 
 function handleError(error) {
@@ -150,22 +176,34 @@ function handleError(error) {
 
 function clearPanel() {
   const tdElements = pixels.querySelectorAll("td");
-  const cmd = new TextEncoder().encode(-1);
+  const cmd = new TextEncoder().encode(["c", "0"]);
+
   if (ble_device) {
     sendCommand(cmd);
+    console.log("clear");
   }
   tdElements.forEach((td) => {
     td.style.backgroundColor = "black";
   });
+  saveGridToCanvas(current_save_slot)
 }
 
 clear_btn.addEventListener("click", () => {
   clearPanel();
 });
 
+save_btn.addEventListener("click", () => {
+  const cmd = new TextEncoder().encode(["w", current_save_slot]);
+  if (ble_device) {
+    sendCommand(cmd);
+    saveGridToCanvas(current_save_slot)
+  }
+});
+
 function sendCommand(cmd) {
   if (writeCharacteristic) {
     // Handle one command at a time
+
     if (busy) {
       // Queue commands
       commandQueue.push(cmd);
@@ -197,7 +235,7 @@ document.addEventListener("DOMContentLoaded", () => {
   createPallete();
   const connect_button = document.getElementById("ble_connect");
   const discon_button = document.getElementById("ble_disconnect");
-
+  setup_save_slots();
   discon_button.addEventListener("click", () => {
     if (!ble_device) {
       return;
@@ -205,52 +243,13 @@ document.addEventListener("DOMContentLoaded", () => {
     console.log("Disconnecting from Bluetooth Device...");
     if (ble_device.gatt.connected) {
       ble_device.gatt.disconnect();
-      // TODO add disable connect button for 1 second
-      // to allow for disconnect command
     } else {
       console.log("> Bluetooth Device is already disconnected");
     }
   });
 
   connect_button.addEventListener("click", () => {
-    console.log("Connecting...");
-    ble_device = null;
-    navigator.bluetooth
-      .requestDevice({
-        filters: [
-          {
-            namePrefix: "PixelDisplay",
-          },
-        ],
-        optionalServices: ["4fafc201-1fb5-459e-8fcc-c5c9c331914b"],
-      })
-      .then((device) => {
-        ble_device = device;
-        console.log(device);
-        console.log("Connecting to GATT Server...");
-        return ble_device.gatt.connect();
-      })
-      .then((server) => {
-        console.log("> Found GATT server");
-        gattServer = server;
-        // Get command service
-        return gattServer.getPrimaryService(
-          "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
-        );
-      })
-      .then((service) => {
-        console.log("> Found command service");
-        commandService = service;
-        // Get write characteristic
-        return commandService.getCharacteristic(
-          "beb5483e-36e1-4688-b7f5-ea07361b26a8"
-        );
-      })
-      .then((characteristic) => {
-        console.log("> Found write characteristic");
-        writeCharacteristic = characteristic;
-      })
-      .catch(handleError);
+    connectToDevice();
   });
 });
 
@@ -258,7 +257,199 @@ window.onbeforeunload = function (event) {
   console.log("Disconnecting from BLE device");
   if (ble_device.gatt.connected) {
     ble_device.gatt.disconnect();
-    // TODO add disable connect button for 1 second
-    // to allow for disconnect command
   }
 };
+
+function setupCharacteristics(readNotifyCharacteristic) {
+
+  // Start notifications:
+  readNotifyCharacteristic.startNotifications()
+    .then(() => {
+      console.log('Notifications started');
+      readNotifyCharacteristic.addEventListener('characteristicvaluechanged', handleCharacteristicValueChanged);
+    }).then(() => {
+      loadSavesFromDevice();
+    })
+    .catch(error => {
+      console.error('Error starting notifications:', error);
+    });
+}
+
+function handleCharacteristicValueChanged(event) {
+  const value = event.target.value;
+  const uint8Array = new Uint8Array(value.buffer);
+
+  console.log('Received LED data (Uint8Array):', uint8Array);
+
+  drawRGBArrayToCanvas(uint8Array, current_save_slot);
+}
+
+async function connectToDevice() {
+  console.log("Connecting...");
+  try {
+    ble_device = await navigator.bluetooth.requestDevice({
+      filters: [
+        {
+          namePrefix: "PixelDisplay",
+        },
+      ],
+      optionalServices: ["4fafc201-1fb5-459e-8fcc-c5c9c331914b"],
+    });
+
+    console.log(ble_device);
+    console.log("Connecting to GATT Server...");
+    gattServer = await ble_device.gatt.connect();
+
+    console.log("> Found GATT server");
+    commandService = await gattServer.getPrimaryService("4fafc201-1fb5-459e-8fcc-c5c9c331914b");
+
+    console.log("> Found command service");
+    [writeCharacteristic, readNotifyCharacteristic] = await Promise.all([
+      commandService.getCharacteristic(WRITE_CHARACTERISTIC_UUID),
+      commandService.getCharacteristic(READ_NOTIFY_CHARACTERISTIC_UUID),
+    ]);
+
+    console.log('Write Characteristic:', writeCharacteristic);
+    console.log('Read/Notify Characteristic:', readNotifyCharacteristic);
+    setupCharacteristics(readNotifyCharacteristic);
+  } catch (error) {
+    handleError(error);
+  }
+}
+
+function drawRGBArrayToCanvas(rgbArray, save_slot) {
+  const canvasId = "save_" + save_slot;
+  const canvas = document.getElementById(canvasId);
+
+  if (!canvas) {
+    console.error("Canvas element with ID '" + canvasId + "' not found.");
+    return;
+  }
+
+  const ctx = canvas.getContext("2d");
+  ctx.imageSmoothingEnabled = false;
+  if (!ctx) {
+    console.error("Canvas context not available.");
+    return;
+  }
+
+  const canvasSize = 8; // 8x8 canvas
+  const pixelSize = canvas.width / canvasSize; // Calculate pixel size
+
+  if (rgbArray.length !== canvasSize * canvasSize * 3) {
+    console.error("RGB array length is incorrect. Expected " + (canvasSize * canvasSize * 3) + " elements, but got " + rgbArray.length + ".");
+    return;
+  }
+
+  for (let row = 0; row < canvasSize; row++) {
+    const rowStartIndex = row * canvasSize * 3;
+
+    if (row % 2 === 0) {
+      for (let col = canvasSize - 1; col >= 0; col--) {
+        const pixelStartIndex = rowStartIndex + col * 3;
+        const r = rgbArray[pixelStartIndex];
+        const g = rgbArray[pixelStartIndex + 1];
+        const b = rgbArray[pixelStartIndex + 2];
+
+        ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+        ctx.fillRect((canvasSize - 1 - col) * pixelSize, row * pixelSize, pixelSize, pixelSize);
+      }
+
+    }
+    else {
+      for (let col = 0; col < canvasSize; col++) {
+        const pixelStartIndex = rowStartIndex + col * 3;
+        const r = rgbArray[pixelStartIndex];
+        const g = rgbArray[pixelStartIndex + 1];
+        const b = rgbArray[pixelStartIndex + 2];
+
+        ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+        ctx.fillRect(col * pixelSize, row * pixelSize, pixelSize, pixelSize);
+      }
+    }
+  }
+}
+
+function loadSaveToGrid(save_slot) {
+  const canvasId = "save_" + save_slot;
+  const canvas = document.getElementById(canvasId);
+  var ctx = canvas.getContext("2d");
+  const canvasSize = 8;
+  const pixelSize = canvas.width / canvasSize;
+
+  for (let row = 0; row < canvasSize; row++) {
+    for (let col = canvasSize - 1; col >= 0; col--) {
+      let pixel_id;
+      if (row % 2 === 0) {
+        pixel_id = row * canvasSize + (canvasSize - 1 - col); // Right-to-left index
+      } else {
+        pixel_id = row * canvasSize + col; // Left-to-right index
+      }
+
+      const x = col * pixelSize;
+      const y = row * pixelSize;
+
+      const saved_pixel_data = ctx.getImageData(x, y, 1, 1).data;
+      const r = saved_pixel_data[0];
+      const g = saved_pixel_data[1];
+      const b = saved_pixel_data[2];
+      const pixel = document.getElementById(pixel_id);
+      pixel.style.backgroundColor = `rgb(${r}, ${g}, ${b})`;
+    }
+
+  }
+}
+
+function saveGridToCanvas(save_slot) {
+  const canvasId = "save_" + save_slot;
+  const canvas = document.getElementById(canvasId);
+  var ctx = canvas.getContext("2d");
+  const canvasSize = 8;
+  const pixelSize = canvas.width / canvasSize;
+
+  for (let row = 0; row < canvasSize; row++) {
+    const rowStartIndex = row * canvasSize;
+
+    if (row % 2 === 0) {
+      for (let col = canvasSize - 1; col >= 0; col--) {
+        const pixel_id = rowStartIndex + col;
+        const pixel = document.getElementById(pixel_id);
+        ctx.fillStyle = pixel.style.backgroundColor
+        ctx.fillRect((canvasSize - 1 - col) * pixelSize, row * pixelSize, pixelSize, pixelSize);
+      }
+
+    }
+    else {
+      for (let col = 0; col < canvasSize; col++) {
+        const pixel_id = rowStartIndex + col;
+        const pixel = document.getElementById(pixel_id);
+        ctx.fillStyle = pixel.style.backgroundColor
+        ctx.fillRect(col * pixelSize, row * pixelSize, pixelSize, pixelSize);
+      }
+    }
+  }
+}
+
+function loadSavesFromDevice() {
+  let index = 0;
+
+  function sendNext() {
+    if (index < 4) {
+      current_save_slot = index;
+      const cmd = new TextEncoder().encode(["l", index + '\0']);
+      console.log("Sending ", index);
+      index++;
+      sendCommand(cmd);
+      setTimeout(sendNext, 200);
+    } else {
+      current_save_slot = 0;
+    }
+  }
+  sendNext();
+
+}
+
+function sendChangeSaveSlot(save_slot) {
+  const cmd = new TextEncoder().encode(["s", save_slot + '\0']);
+  sendCommand(cmd);
+}

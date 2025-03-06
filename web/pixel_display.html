@@ -1,36 +1,47 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="stylesheet" href="styles.css" />
-    <title>Document</title>
-  </head>
 
-  <body onload="createTable()">
-    <div class="container">
-      <div class="ble_container">
-        <h3>Bluetooth</h3>
-        <div class="button_container">
-          <button id="ble_connect">Connect</button>
-          <button id="ble_disconnect">Disconnect</button>
-        </div>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="styles.css" />
+  <title>Document</title>
+</head>
 
-        <div class="progress-container">
-          <div id="progress-bar"></div>
-        </div>
+<body onload="createTable()">
+  <div class="container">
+    <div class="ble_container">
+      <h3>Bluetooth</h3>
+      <div class="button_container">
+        <button id="ble_connect">Connect</button>
+        <button id="ble_disconnect">Disconnect</button>
       </div>
-      <div class="table_container">
-        <table id="pixel_container"></table>
-      </div>
-      <div class="color_panel">
-        <div>
-          <table id="pallete"></table>
-        </div>
-        <input type="color" name="color" id="pixel_color" value="#0000ff" />
-        <input type="button" id="clear_btn" value="Clear Grid" />
+
+      <div class="progress-container">
+        <div id="progress-bar"></div>
       </div>
     </div>
-  </body>
-  <script defer src="pixel.js"></script>
+    <div class="table_container">
+      <table id="pixel_container"></table>
+    </div>
+    <div class="color_panel">
+      <div>
+        <table id="pallete"></table>
+        <input type="color" name="color" id="pixel_color" value="#0000ff" />
+      </div>
+
+      <input type="button" id="clear_btn" value="Clear Grid" />
+      <input type="button" id="save_btn" value="Save Data" />
+    </div>
+    <div class="save_container">
+      <!-- Height and widht need to be evenly divisible by 8 for this to work -->
+      <canvas id="save_0" class="save" height="120" width="120"></canvas>
+      <canvas id="save_1" class="save" height="120" width="120"></canvas>
+      <canvas id="save_2" class="save" height="120" width="120"></canvas>
+      <canvas id="save_3" class="save" height="120" width="120"></canvas>
+    </div>
+  </div>
+</body>
+<script defer src="pixel.js"></script>
+
 </html>
