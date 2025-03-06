@@ -105,7 +105,18 @@ pixels.addEventListener("mousedown", (event) => {
   paint_tile(event.target);
 });
 
+pixels.addEventListener("touchstart", (event) => {
+  event.preventDefault();
+  is_drawing = event.button === 0 ? true : false;
+  paint_tile(event.target);
+});
+
 pixels.addEventListener("mouseup", (event) => {
+  event.preventDefault();
+  is_drawing = false;
+});
+
+pixels.addEventListener("touchend", (event) => {
   event.preventDefault();
   is_drawing = false;
 });
@@ -122,6 +133,14 @@ pixels.addEventListener("mouseover", (event) => {
     paint_tile(event.target);
   }
 });
+
+pixels.addEventListener("touchmove", (event) => {
+  event.preventDefault();
+  if (is_drawing) {
+    paint_tile(event.target);
+  }
+});
+
 
 function setup_save_slots() {
   const saves = document.getElementsByClassName("save")
