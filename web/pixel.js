@@ -7,6 +7,8 @@ let busy = false;
 let is_drawing = false;
 let commandQueue = [];
 let current_save_slot = 0;
+let prev_tar = -1;
+let prev_color;
 
 const WRITE_CHARACTERISTIC_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26a8"
 const READ_NOTIFY_CHARACTERISTIC_UUID = "e50fc8b7-42d6-4047-bc03-b2a92905d480"
@@ -65,6 +67,7 @@ function createTable() {
     pixels.appendChild(row);
   }
 }
+
 const rgb2hex = (rgb) =>
   `#${rgb
     .match(/^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/)
@@ -105,18 +108,7 @@ pixels.addEventListener("mousedown", (event) => {
   paint_tile(event.target);
 });
 
-pixels.addEventListener("touchstart", (event) => {
-  event.preventDefault();
-  is_drawing = event.button === 0 ? true : false;
-  paint_tile(event.target);
-});
-
 pixels.addEventListener("mouseup", (event) => {
-  event.preventDefault();
-  is_drawing = false;
-});
-
-pixels.addEventListener("touchend", (event) => {
   event.preventDefault();
   is_drawing = false;
 });
@@ -126,7 +118,6 @@ pixels.addEventListener("mouseleave", (event) => {
   is_drawing = false;
 });
 
-
 pixels.addEventListener("mouseover", (event) => {
   event.preventDefault();
   if (is_drawing) {
@@ -134,17 +125,28 @@ pixels.addEventListener("mouseover", (event) => {
   }
 });
 
+// Setup touch events
+pixels.addEventListener("touchstart", (event) => {
+  is_drawing = true;
+  paint_tile(event.target);
+});
+
 pixels.addEventListener("touchmove", (event) => {
   event.preventDefault();
-  if (is_drawing) {
-    paint_tile(event.target);
+  const location = event.changedTouches[0];
+  const tar = document.elementFromPoint(location.clientX, location.clientY);
+  if (is_drawing && tar) {
+    paint_tile(tar);
   }
+});
+
+pixels.addEventListener("touchend", (event) => {
+  is_drawing = false;
 });
 
 
 function setup_save_slots() {
   const saves = document.getElementsByClassName("save")
-  console.log(saves);
   const savesArray = Array.from(saves);
   savesArray.forEach((s, i) => {
     s.addEventListener("click", () => {
@@ -174,7 +176,13 @@ function paint_tile(tar) {
     tar.style.backgroundColor = pixel_color;
     const color = pixel_color.replace("#", "0x");
     const cmd = new TextEncoder().encode([tar.id, color]);
-    sendCommand(cmd);
+
+    if (tar.id !== prev_tar) {
+      sendCommand(cmd);
+    }
+    prev_tar = tar.id;
+    prev_color = color;
+
   }
 }
 
@@ -222,7 +230,6 @@ save_btn.addEventListener("click", () => {
 function sendCommand(cmd) {
   if (writeCharacteristic) {
     // Handle one command at a time
-
     if (busy) {
       // Queue commands
       commandQueue.push(cmd);
@@ -297,9 +304,6 @@ function setupCharacteristics(readNotifyCharacteristic) {
 function handleCharacteristicValueChanged(event) {
   const value = event.target.value;
   const uint8Array = new Uint8Array(value.buffer);
-
-  console.log('Received LED data (Uint8Array):', uint8Array);
-
   drawRGBArrayToCanvas(uint8Array, current_save_slot);
 }
 
@@ -456,7 +460,6 @@ function loadSavesFromDevice() {
     if (index < 4) {
       current_save_slot = index;
       const cmd = new TextEncoder().encode(["l", index + '\0']);
-      console.log("Sending ", index);
       index++;
       sendCommand(cmd);
       setTimeout(sendNext, 200);

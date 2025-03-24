@@ -17,8 +17,7 @@
 #define WIDTH 8
 #define HEIGHT 8
 #define NUM_LEDS 64
-#define FPS 60
-#define EEPROM_SIZE NUM_LEDS * 3 + 1  // 3 bytes for each RGB color
+#define MAX_SAVES 4
 
 Preferences preferences;
 
@@ -259,13 +258,21 @@ void adjust_brightness(char *b) {
 
 void change_save_slot(char *s) {
   int save_int = atoi(s);
-  if (save_int > 3 || save_int < 0) {
+  if (save_int > MAX_SAVES || save_int < 0) {
     Serial.println("ERROR: Invalid save slot");
   } else {
     preferences.begin("settings", false);
     preferences.putBytes("save_slot", s, sizeof(save_slot));  
     preferences.end();
     load_stored_data(s);
+  }
+}
+
+void check_initialized() {
+  preferences.begin("settings", false);
+
+  for (int i; i < MAX_SAVES; i++) {
+
   }
 }
 
